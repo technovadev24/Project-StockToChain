@@ -2,7 +2,6 @@ import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import {
   hardhat
 } from 'wagmi/chains'; 
-
 import { http } from 'viem';
 
 export const config = getDefaultConfig({
@@ -13,6 +12,6 @@ export const config = getDefaultConfig({
   ],
   ssr: true,
   transports: {
-    [hardhat.id]: http('http://127.0.0.1:8545')
+    [hardhat.id]: http(process.env.NEXT_PUBLIC_RPC_URL)
   }
 });

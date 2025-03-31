@@ -1,5 +1,5 @@
 'use client';
-import StockToChain from "../components/StockToChain";
+import StockToChain from "../components/shared/StockToChain";
 import {
   Alert,
   AlertDescription,
