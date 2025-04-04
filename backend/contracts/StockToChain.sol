@@ -18,7 +18,10 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
 
     using Address for address;
 
-    /// @dev Énumération des différents états du workflow du contrat
+    /**
+     * @dev Énumération des différents états du workflow du contrat
+     * @notice Définit les états possibles du contrat : vente non démarrée, vente active, vente terminée, rachat actif
+     */
     enum WorkflowStatus {
         SaleNotStarted,
         SaleActive,
@@ -26,7 +29,10 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         BuybackActive
     }
 
-    /// @dev Structure stockant les informations d'un investisseur
+    /**
+     * @dev Structure stockant les informations d'un investisseur
+     * @notice Contient les données importantes pour chaque investisseur : whitelist, temps du dernier achat, profits non réclamés, etc.
+     */
     struct Investor {
         bool whitelisted;
         uint256 lastPurchaseTime;
@@ -35,38 +41,54 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         uint256 totalTokens;
     }
 
-    /// @dev Structure stockant les informations d'un Price Feed
+    /**
+     * @dev Structure pour les feeds de prix Chainlink
+     * @notice Stocke l'interface du feed et le nombre de décimales
+     */
     struct PriceFeed {
         AggregatorV3Interface feed;
         uint8 decimals;
     }
 
-    /// @dev Structure stockant la répartition des profits
+    /**
+     * @dev Structure pour la distribution des profits
+     * @notice Définit les parts de profits pour la société, la plateforme et les détenteurs de tokens
+     */
     struct ProfitDistribution {
         uint256 companyShare;
         uint256 platformShare;
         uint256 tokenHolderShare;
     }
 
-    /// @dev Price Feeds Chainlink pour les conversions EUR/USD et POL/USD
+    /**
+     * @dev Feeds de prix Chainlink pour EUR/USD et POL/USD
+     * @notice Utilisés pour convertir les prix entre les différentes devises
+     */
     AggregatorV3Interface private immutable eurUsdPriceFeed;
     AggregatorV3Interface private immutable polUsdPriceFeed;
-    /// @dev Nombre de décimales des Price Feeds
     uint8 private constant PRICE_FEED_DECIMALS = 8;
 
-    /// @dev Prix du token en EUR (avec 18 décimales)
-    uint256 public constant TOKEN_PRICE_EUR = 50 * 10**18;
-    /// @dev Supply total des tokens (avec 18 décimales)
-    uint256 public constant TOTAL_SUPPLY = 84000 * 10**18;
-    /// @dev Période d'attente pour réclamer les profits (4 ans)
-    uint256 public constant PROFIT_CLAIM_PERIOD = 4 * 365 days;
+    /// @notice Prix du token en EUR avec 18 décimales
+    uint256 public constant TOKEN_PRICE_EUR = 50 * 10**18; // 50 EUR with 18 decimals
 
-    /// @dev Ratios de distribution des profits (en points de base)
+    /// @notice Supply total de tokens avec 18 décimales
+    uint256 public constant TOTAL_SUPPLY = 84000 * 10**18; // 84,000 tokens with 18 decimals
+
+    /// @notice Période de 4 ans pour la réclamation des profits
+    uint256 public constant PROFIT_CLAIM_PERIOD = 4 * 365 days; // 4 years for profit claims
+
+    /**
+     * @dev Ratios de distribution des profits (en points de base)
+     * @notice Définit la répartition des profits : 60% société, 30% détenteurs, 10% plateforme
+     */
     uint256 public constant COMPANY_RATIO = 6000;
     uint256 public constant TOKEN_HOLDERS_RATIO = 3000;
     uint256 public constant PLATFORM_RATIO = 1000;
 
-    /// @dev Variables d'état du contrat
+    /**
+     * @dev Variables d'état du contrat
+     * @notice Stocke les informations globales du contrat : statut, investisseurs, profits distribués, etc.
+     */
     WorkflowStatus public workflowStatus;
     mapping(address => Investor) public investors;
     uint256 public totalDistributedProfits;
@@ -74,7 +96,10 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
     address[] private investorList;
     mapping(address => bool) private isInInvestorList;
 
-    /// @dev Événements du contrat
+    /**
+     * @dev Événements du contrat
+     * @notice Définit tous les événements émis par le contrat pour le suivi des opérations
+     */
     event TokensPurchased(address indexed buyer, uint256 amount, uint256 price);
     event ProfitsDistributed(uint256 totalAmount);
     event ProfitsClaimed(address indexed investor, uint256 amount);
@@ -86,6 +111,13 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
     event Received(address indexed sender, uint256 amount);
     event FallbackCalled(address indexed sender, uint256 amount, bytes data);
 
+    /**
+     * @dev Constructeur du contrat StockToChain
+     * @param _eurUsdPriceFeed Adresse du feed de prix EUR/USD
+     * @param _polUsdPriceFeed Adresse du feed de prix POL/USD
+     * @param _companyWallet Adresse du wallet de la société
+     * @param _platformWallet Adresse du wallet de la plateforme
+     */
     constructor(
         address _eurUsdPriceFeed,
         address _polUsdPriceFeed,
@@ -104,17 +136,19 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         workflowStatus = WorkflowStatus.SaleNotStarted;
     }
 
-    // Modifiers
+    /// @notice Vérifie que l'adresse de l'appelant est dans la whitelist
     modifier onlyWhitelisted() {
         require(investors[msg.sender].whitelisted, "Address not whitelisted");
         _;
     }
 
+    /// @notice Vérifie que le contrat est dans l'état SaleActive
     modifier saleActive() {
         require(workflowStatus == WorkflowStatus.SaleActive, "Sale is not active");
         _;
     }
 
+    /// @notice Vérifie que 4 ans se sont écoulés depuis le dernier achat
     modifier canClaimProfits() {
         require(
             block.timestamp >= investors[msg.sender].lastPurchaseTime + PROFIT_CLAIM_PERIOD,
@@ -123,6 +157,7 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         _;
     }
 
+    /// @notice Vérifie que la transition d'état est valide selon le workflow défini
     modifier validWorkflowTransition(WorkflowStatus newStatus) {
         require(
             (workflowStatus == WorkflowStatus.SaleNotStarted && newStatus == WorkflowStatus.SaleActive) ||
@@ -132,10 +167,18 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         );
         _;
     }
-     // External Functions
+
+    /// @notice Traite 50 investisseurs à la fois pour éviter les problèmes de gas
+    uint256 batchSize = 50; // Process 50 investors at a time
+
+    /// @notice Prix de rachat stocké une seule fois pour tous les batchs
+    uint256 private buybackPriceFinal;
+
+    // External Functions
     /**
      * @dev Achete des tokens
      * @param amount Nombre de tokens à acheter
+     * @notice Cette fonction permet aux investisseurs whitelistés d'acheter des tokens en POL
      */
     function buyTokens(uint256 amount) external payable whenNotPaused saleActive onlyWhitelisted nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
@@ -146,19 +189,28 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
 
         _mint(msg.sender, amount);
         
-        /// @dev Mise à jour des données de l'investisseur
+        /**
+         * @dev Mise à jour des données de l'investisseur
+         * @notice Met à jour le temps du dernier achat, le montant total investi et le nombre de tokens
+         */
         Investor storage investor = investors[msg.sender];
         investor.lastPurchaseTime = block.timestamp;
         investor.totalInvested += priceInPol;
         investor.totalTokens += amount;
 
-        /// @dev Ajout à la liste des investisseurs si non présent
+        /**
+         * @dev Ajout à la liste des investisseurs si non présent
+         * @notice Permet de garder une trace de tous les investisseurs pour la distribution des profits
+         */
         if (!isInInvestorList[msg.sender]) {
             investorList.push(msg.sender);
             isInInvestorList[msg.sender] = true;
         }
 
-        /// @dev Remboursement du surplus de POL
+        /**
+         * @dev Remboursement du POL excédentaire
+         * @notice Si l'investisseur a envoyé plus de POL que nécessaire, le surplus est remboursé
+         */
         if (msg.value > priceInPol) {
             payable(msg.sender).transfer(msg.value - priceInPol);
         }
@@ -182,17 +234,25 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
             tokenHolderShare: msg.value - ((msg.value * COMPANY_RATIO) / 10000) - ((msg.value * PLATFORM_RATIO) / 10000)
         });
 
-        /// @dev Transfert des parts de la société et de la plateforme
+        /**
+         * @dev Transfert des parts société et plateforme
+         * @notice Les parts de la société et de la plateforme sont transférées immédiatement
+         */
         payable(owner()).transfer(distribution.companyShare);
         payable(platformWallet).transfer(distribution.platformShare);
 
-        /// @dev Mise à jour des profits distribués
+        /**
+         * @dev Mise à jour des profits distribués
+         * @notice Met à jour le total des profits distribués et vérifie qu'il y a des tokens en circulation
+         */
         totalDistributedProfits += distribution.tokenHolderShare;
         uint256 supply = totalSupply();
         require(supply > 0, "No tokens in circulation");
 
-        /// @dev Distribution des profits par lots pour éviter les problèmes de gas
-        uint256 batchSize = 50;
+        /**
+         * @dev Distribution des profits par lots
+         * @notice Traite les investisseurs par lots de 50 pour éviter les problèmes de gas
+         */
         uint256 startIndex = 0;
         
         while (startIndex < investorList.length) {
@@ -289,30 +349,36 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
     }
 
     /**
-     * @dev Ajoute une adresse à la whitelist
-     * @param investor L'adresse à whitelister
+     * @dev Ajoute des adresses à la whitelist
+     * @param addresses Liste des adresses à ajouter
      */
-    function whitelistInvestor(address investor) external onlyOwner {
-        require(investor != address(0), "Invalid address");
-        investors[investor].whitelisted = true;
-        emit InvestorWhitelisted(investor);
+    function addToWhitelist(address[] calldata addresses) external onlyOwner {
+        require(addresses.length > 0, "Empty address list");
+        for (uint256 i = 0; i < addresses.length; i++) {
+            require(addresses[i] != address(0), "Invalid address");
+            investors[addresses[i]].whitelisted = true;
+            emit InvestorWhitelisted(addresses[i]);
+        }
     }
 
     /**
-     * @dev Retire une adresse de la whitelist
-     * @param investor L'adresse à retirer de la whitelist
+     * @dev Retire des adresses de la whitelist
+     * @param addresses Liste des adresses à retirer
      */
-    function removeFromWhitelist(address investor) external onlyOwner {
-        require(investor != address(0), "Invalid address");
-        investors[investor].whitelisted = false;
-        emit InvestorRemovedFromWhitelist(investor);
+    function removeFromWhitelist(address[] calldata addresses) external onlyOwner {
+        require(addresses.length > 0, "Empty address list");
+        for (uint256 i = 0; i < addresses.length; i++) {
+            require(addresses[i] != address(0), "Invalid address");
+            investors[addresses[i]].whitelisted = false;
+            emit InvestorRemovedFromWhitelist(addresses[i]);
+        }
     }
 
     /**
-     * @dev Change le statut du workflow
-     * @param newStatus Le nouveau statut à définir
+     * @dev Met à jour le statut du workflow
+     * @param newStatus Nouveau statut
      */
-    function changeWorkflowStatus(WorkflowStatus newStatus) external onlyOwner validWorkflowTransition(newStatus) {
+    function updateWorkflowStatus(WorkflowStatus newStatus) external onlyOwner validWorkflowTransition(newStatus) {
         workflowStatus = newStatus;
         emit WorkflowStatusChanged(newStatus);
     }
@@ -332,28 +398,27 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
     }
 
     /**
-     * @dev Permet de retirer des tokens en cas d'urgence
-     * @param token L'adresse du token à retirer
-     * @param amount Le montant à retirer
+     * @dev Retire les fonds en cas d'urgence
+     * @param token Adresse du token à retirer (0 pour POL natif)
      */
-    function emergencyWithdraw(address token, uint256 amount) external onlyOwner {
+    function emergencyWithdraw(address token) external onlyOwner {
         require(token != address(this), "Cannot withdraw contract's own token");
-        require(amount > 0, "Amount must be greater than 0");
+        uint256 balance;
         if (token == address(0)) {
-            require(amount <= address(this).balance, "Insufficient contract balance");
-            payable(owner()).transfer(amount);
+            balance = address(this).balance;
+            payable(owner()).transfer(balance);
         } else {
-            require(amount <= IERC20(token).balanceOf(address(this)), "Insufficient token balance");
-            IERC20(token).transfer(owner(), amount);
+            balance = IERC20(token).balanceOf(address(this));
+            IERC20(token).transfer(owner(), balance);
         }
-        emit EmergencyWithdraw(token, amount);
+        emit EmergencyWithdraw(token, balance);
     }
-    /// @dev Prix de rachat stocké une seule fois pour tous les batchs de rachat
-    uint256 private buybackPriceFinal;
+
     /**
      * @dev Exécute le rachat batché des tokens par la société
      * @param start Index de départ dans la liste des investisseurs
      * @param end Index de fin (exclusif) dans la liste des investisseurs
+     * @notice Cette fonction permet de racheter les tokens en plusieurs batchs pour éviter les problèmes de gas
      */
     function buybackByCompanyBatch(uint256 start, uint256 end) external payable onlyOwner whenNotPaused {
         require(msg.value > 0, "No funds for buyback");
@@ -363,7 +428,10 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         uint256 totalTokens = totalSupply();
         if (totalTokens == 0) revert NoTokensToBuyBack();
 
-        /// @dev Calcul du prix de rachat une seule fois dans le premier batch
+        /**
+         * @dev Calcul du prix de rachat une seule fois dans le premier batch
+         * @notice Le prix est calculé et stocké dans buybackPriceFinal pour être réutilisé dans les batchs suivants
+         */
         if (start == 0) {
             buybackPriceFinal = getBuybackPriceInPOL(totalTokens);
             require(msg.value >= buybackPriceFinal, "Insufficient funds for buyback");
@@ -389,7 +457,10 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
             }
         }
 
-        /// @dev Burn et event à la fin du dernier batch uniquement
+        /**
+         * @dev Burn et event à la fin du dernier batch uniquement
+         * @notice Les tokens sont brûlés et l'event est émis une seule fois à la fin du dernier batch
+         */
         if (end == investorList.length) {
             uint256 contractBalance = balanceOf(address(this));
             if (contractBalance < totalTokens) {
@@ -400,15 +471,22 @@ contract StockToChain is ERC20, Ownable, Pausable, ReentrancyGuard {
         }
     }
 
-    /// @notice Appelé lorsqu'un envoi de POL natif est effectué sans data (ex : simple transfert)
+    /**
+     * @dev Fonction appelée lorsqu'un envoi de POL natif est effectué sans data (ex : simple transfert)
+     * @notice Cette fonction est appelée automatiquement lors d'un transfert simple de POL vers le contrat
+     */
     receive() external payable {
         require(msg.value > 0, "Receive: Zero value");
         emit Received(msg.sender, msg.value);
     }
 
-    /// @notice Appelé lorsqu'un envoi de POL natif est accompagné de data mais n'appelle aucune fonction
+    /**
+     * @dev Fonction appelée lorsqu'un envoi de POL natif est accompagné de data mais n'appelle aucune fonction
+     * @notice Cette fonction est appelée automatiquement lors d'un transfert de POL avec des données vers le contrat
+     */
     fallback() external payable {
         require(msg.value > 0, "Fallback: Zero value");
         emit FallbackCalled(msg.sender, msg.value, msg.data);
     }
+
 }
