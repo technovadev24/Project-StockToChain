@@ -6,32 +6,44 @@ import { useState } from 'react';
 
 export default function DistributeProfits() {
   const [amount, setAmount] = useState('');
-  
-  const { writeContract: distributeProfits } = useWriteContract({
-    address: CONTRACT_ADDRESS,
-    abi: CONTRACT_ABI,
-    functionName: 'distributeProfits',
-    onSuccess: () => {
-      console.log('Profits distribués avec succès');
-    },
-    onError: (error) => {
-      console.error('Erreur lors de la distribution:', error);
-    }
-  });
 
-  const handleDistribute = () => {
-    console.log('Clic sur le bouton Distribuer');
-    console.log('Montant:', amount);
-    if (amount) {
-      console.log('Tentative d\'envoi de la transaction...');
-      try {
-        distributeProfits({ value: parseEther(amount) });
-        console.log('Transaction envoyée à MetaMask');
-      } catch (error) {
-        console.error('Erreur lors de l\'envoi de la transaction:', error);
+  const { writeContract } = useWriteContract();
+
+  const handleDistribute = async () => {
+    console.log('Tentative de distribution des profits');
+
+    if (!amount || Number(amount) <= 0) {
+      return console.error("Veuillez entrer un montant supérieur à 0");
+    }
+
+    try {
+      const value = parseEther(amount);
+      console.log('Montant en wei:', value.toString());
+
+      console.log('Envoi de la transaction...');
+      const tx = await writeContract({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'distributeProfits',
+        value: value
+      });
+
+      if (tx) {
+        console.log('Transaction envoyée à MetaMask:', tx);
+        // Attendre la confirmation de la transaction
+        const receipt = await tx.wait();
+        console.log('Transaction confirmée:', receipt);
+      } else {
+        console.error('La transaction n\'a pas été envoyée');
       }
-    } else {
-      console.log('Veuillez entrer un montant');
+    } catch (error) {
+      console.error('Erreur transaction:', error);
+      if (error?.cause?.message) {
+        console.error('Cause probable:', error.cause.message);
+      }
+      if (error?.data) {
+        console.error('Données d\'erreur:', error.data);
+      }
     }
   };
 
@@ -40,12 +52,11 @@ export default function DistributeProfits() {
       <h2>Distribution des profits</h2>
       <input 
         type="number" 
-        placeholder="Montant en POL"
+        placeholder="Montant en POL (ex: 0.1)"
+        step="0.01"
         onChange={(e) => setAmount(e.target.value)}
       />
-      <button 
-        onClick={handleDistribute}
-      >
+      <button onClick={handleDistribute}>
         Distribuer
       </button>
     </div>

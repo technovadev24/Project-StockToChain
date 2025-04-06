@@ -2,72 +2,106 @@
 import { useWriteContract } from 'wagmi';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/constants';
 import { useState } from 'react';
+import { isAddress } from 'viem';
 
 export default function WhitelistManager() {
   const [whitelistAddress, setWhitelistAddress] = useState('');
-  
-  const { writeContract: addToWhitelist } = useWriteContract({
-    address: CONTRACT_ADDRESS,
-    abi: CONTRACT_ABI,
-    functionName: 'addToWhitelist',
-    onSuccess: () => {
-      console.log('Adresse ajoutée à la whitelist');
-    },
-    onError: (error) => {
-      console.error('Erreur lors de l\'ajout:', error);
-    }
-  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const { writeContract: removeFromWhitelist } = useWriteContract({
-    address: CONTRACT_ADDRESS,
-    abi: CONTRACT_ABI,
-    functionName: 'removeFromWhitelist',
-    onSuccess: () => {
-      console.log('Adresse retirée de la whitelist');
-    },
-    onError: (error) => {
-      console.error('Erreur lors du retrait:', error);
-    }
-  });
+  const { writeContractAsync } = useWriteContract();
 
-  const handleAddToWhitelist = () => {
-    console.log('Tentative d\'ajout à la whitelist:', whitelistAddress);
+  const handleAddToWhitelist = async () => {
+    console.log("Tentative d'ajout à la whitelist");
+    setError(null);
+
+    if (!isAddress(whitelistAddress)) {
+      return setError("Adresse invalide");
+    }
+
+    setIsLoading(true);
+
     try {
-      addToWhitelist({ args: [whitelistAddress] });
-      console.log('Transaction d\'ajout envoyée à MetaMask');
-    } catch (error) {
-      console.error('Erreur lors de l\'envoi de la transaction:', error);
+      console.log("Envoi de la transaction...");
+      const txHash = await writeContractAsync({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'addToWhitelist',
+        args: [[whitelistAddress]], // ✅ tableau de 1 adresse
+      });
+
+      console.log('Transaction envoyée :', txHash);
+    } catch (err) {
+      console.error("Erreur transaction :", err);
+      setError(err.message || "Une erreur est survenue");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleRemoveFromWhitelist = () => {
-    console.log('Tentative de retrait de la whitelist:', whitelistAddress);
+  const handleRemoveFromWhitelist = async () => {
+    console.log("Tentative de retrait de la whitelist");
+    setError(null);
+
+    if (!isAddress(whitelistAddress)) {
+      return setError("Adresse invalide");
+    }
+
+    setIsLoading(true);
+
     try {
-      removeFromWhitelist({ args: [whitelistAddress] });
-      console.log('Transaction de retrait envoyée à MetaMask');
-    } catch (error) {
-      console.error('Erreur lors de l\'envoi de la transaction:', error);
+      console.log("Envoi de la transaction...");
+      const txHash = await writeContractAsync({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: 'removeFromWhitelist',
+        args: [[whitelistAddress]], // ✅ également tableau
+      });
+
+      console.log('Transaction envoyée :', txHash);
+    } catch (err) {
+      console.error("Erreur transaction :", err);
+      setError(err.message || "Une erreur est survenue");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="mb-4">
-      <h2>Gestion de la whitelist</h2>
-      <input 
-        type="text" 
-        placeholder="Adresse à whitelister"
+    <div className="mb-4 p-4 border rounded shadow bg-white">
+      <h2 className="text-lg font-bold mb-2">Gestion de la whitelist</h2>
+
+      <input
+        type="text"
+        placeholder="Adresse à whitelister (ex: 0x...)"
+        value={whitelistAddress}
         onChange={(e) => setWhitelistAddress(e.target.value)}
+        className="w-full p-2 border rounded mb-2"
+        disabled={isLoading}
       />
-      <button 
-        onClick={handleAddToWhitelist}
-      >
-        Ajouter
-      </button>
-      <button 
-        onClick={handleRemoveFromWhitelist}
-      >
-        Retirer
-      </button>
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleAddToWhitelist}
+          disabled={isLoading}
+          className={`p-2 rounded ${
+            isLoading ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600 text-white'
+          }`}
+        >
+          Ajouter
+        </button>
+        <button
+          onClick={handleRemoveFromWhitelist}
+          disabled={isLoading}
+          className={`p-2 rounded ${
+            isLoading ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600 text-white'
+          }`}
+        >
+          Retirer
+        </button>
+      </div>
+
+      {error && <p className="text-red-500 mt-2 text-sm">{error}</p>}
     </div>
   );
 }
