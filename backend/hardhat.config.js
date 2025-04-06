@@ -17,24 +17,23 @@ module.exports = {
     hardhat: {
       chainId: 31337
     },
-    // Mumbai network commented out for local development
-    // mumbai: {
-    //   url: process.env.MUMBAI_RPC_URL || "https://rpc-mumbai.maticvigil.com",
-    //   accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-    //   chainId: 80001
-    // }
+    amoy: {
+      url: process.env.AMOY_RPC_URL,
+      accounts: [process.env.PRIVATE_KEY],
+      chainId: 80002
+    }
   },
   etherscan: {
     apiKey: {
-      polygonMumbai: process.env.POLYGONSCAN_API_KEY
+      polygonAmoy: process.env.POLYGONSCAN_API_KEY
     },
     customChains: [
       {
-        network: "polygonMumbai",
-        chainId: 80001,
+        network: "polygonAmoy",
+        chainId: 80002,
         urls: {
-          apiURL: "https://api-testnet.polygonscan.com/api",
-          browserURL: "https://mumbai.polygonscan.com"
+          apiURL: "https://api-amoy.polygonscan.com/api",
+          browserURL: "https://amoy.polygonscan.com"
         }
       }
     ]
