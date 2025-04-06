@@ -14,6 +14,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
+        env:
+          AMOY_RPC_URL: ${{ secrets.AMOY_RPC_URL }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
 
     steps:
       - name: Checkout Repository
